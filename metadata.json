@@ -1,0 +1,5 @@
+{
+  "name": "감귤 당도 분석 대시보드 (Citrus Brix Analysis Dashboard)",
+  "description": "CSV 파일을 업로드하여 감귤 당도 데이터를 기간별, 농가별, 품종별로 분석하고 시각화하는 애플리케이션입니다. (An application to analyze and visualize citrus brix data from a CSV file by period, farm, and variety.)",
+  "requestFramePermissions": []
+}
