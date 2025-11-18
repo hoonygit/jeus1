@@ -18,7 +18,7 @@ const AVG_COLOR = '#F97316'; // Distinct color for overall average
 const LINE_STYLES = ['solid', '5 5', '10 5', '3 3', '1 5']; // Dash patterns for line chart
 
 const BrixChart: React.FC<BrixChartProps> = ({ data, timeSeriesData, selectedFarmlands, filters, onFilterChange, yearList }) => {
-  // State to track the currently active legend item for highlighting
+  // State to track the currently active legend item for filtering
   const [activeLegend, setActiveLegend] = useState<string | null>(null);
 
   // Memoize the color mapping for farms to avoid recalculation on every render
@@ -34,13 +34,13 @@ const BrixChart: React.FC<BrixChartProps> = ({ data, timeSeriesData, selectedFar
     onFilterChange({ ...filters, year: e.target.value });
   };
   
-  // Handles legend click: Toggles highlighting for the clicked data series.
+  // Handles legend click: Toggles filtering for the clicked data series.
   const handleLegendClick = (e: any) => {
     const { dataKey } = e;
     setActiveLegend(prevActive => (prevActive === dataKey ? null : dataKey));
   };
   
-  // Handles chart background click: Resets any active legend highlighting.
+  // Handles chart background click: Resets any active legend filtering.
   const handleChartClick = () => {
     setActiveLegend(null);
   };
@@ -119,6 +119,8 @@ const BrixChart: React.FC<BrixChartProps> = ({ data, timeSeriesData, selectedFar
       <div className="flex-grow">
         <ResponsiveContainer key={chartKey} width="100%" height="100%">
             {(() => {
+                const allSeries = ['전체 평균', ...selectedFarmlands];
+
                 // Renders a line chart for time-series data (more than one day)
                 if (isTimeSeries) {
                     return (
@@ -128,31 +130,35 @@ const BrixChart: React.FC<BrixChartProps> = ({ data, timeSeriesData, selectedFar
                             <YAxis label={{ value: 'Brix', angle: -90, position: 'insideLeft', fill: '#64748B' }} tick={{ fill: '#64748B' }} domain={['dataMin - 1', 'dataMax + 1']} />
                             {chartTooltip}
                             <Legend onClick={handleLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
-                            <Line 
-                                key="전체 평균" 
-                                type="monotone" 
-                                dataKey="전체 평균" 
-                                stroke={AVG_COLOR}
-                                strokeWidth={activeLegend === '전체 평균' ? 4 : 2}
-                                strokeOpacity={activeLegend === null || activeLegend === '전체 평균' ? 1 : 0.3}
-                                name="전체 평균" 
-                                dot={false}
-                                connectNulls={true}
-                            />
-                            {selectedFarmlands.map((farm, index) => (
-                                <Line
-                                    key={farm}
+                            {allSeries.map(seriesKey => {
+                                const isHidden = activeLegend !== null && activeLegend !== seriesKey;
+                                if (seriesKey === '전체 평균') {
+                                    return <Line 
+                                        key="전체 평균" 
+                                        type="monotone" 
+                                        dataKey="전체 평균" 
+                                        stroke={AVG_COLOR}
+                                        strokeWidth={2}
+                                        name="전체 평균" 
+                                        dot={false}
+                                        connectNulls={true}
+                                        hide={isHidden}
+                                    />;
+                                }
+                                const farmIndex = selectedFarmlands.indexOf(seriesKey);
+                                return <Line
+                                    key={seriesKey}
                                     type="monotone"
-                                    dataKey={farm}
-                                    stroke={farmColorMap.get(farm)}
-                                    strokeWidth={activeLegend === farm ? 4 : 2}
-                                    strokeOpacity={activeLegend === null || activeLegend === farm ? 1 : 0.3}
-                                    name={farm}
-                                    strokeDasharray={LINE_STYLES[index % LINE_STYLES.length]}
+                                    dataKey={seriesKey}
+                                    stroke={farmColorMap.get(seriesKey)}
+                                    strokeWidth={2}
+                                    name={seriesKey}
+                                    strokeDasharray={LINE_STYLES[farmIndex % LINE_STYLES.length]}
                                     dot={false}
                                     connectNulls={true}
-                                />
-                            ))}
+                                    hide={isHidden}
+                                />;
+                            })}
                         </LineChart>
                     );
                 }
@@ -167,24 +173,27 @@ const BrixChart: React.FC<BrixChartProps> = ({ data, timeSeriesData, selectedFar
                             <YAxis label={{ value: 'Brix', angle: -90, position: 'insideLeft', fill: '#64748B' }} tick={{ fill: '#64748B' }} domain={[0, 'dataMax + 2']}/>
                             {chartTooltip}
                             <Legend onClick={handleLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
-                            <Bar 
-                                key="전체 평균" 
-                                dataKey="전체 평균" 
-                                fill={AVG_COLOR} 
-                                name="전체 평균" 
-                                radius={[4, 4, 0, 0]}
-                                fillOpacity={activeLegend === null || activeLegend === '전체 평균' ? 1 : 0.3}
-                            />
-                            {selectedFarmlands.map(farm => (
-                                <Bar 
-                                    key={farm} 
-                                    dataKey={farm} 
-                                    fill={farmColorMap.get(farm)} 
-                                    name={farm} 
+                            {allSeries.map(seriesKey => {
+                                const isHidden = activeLegend !== null && activeLegend !== seriesKey;
+                                if (seriesKey === '전체 평균') {
+                                    return <Bar 
+                                        key="전체 평균" 
+                                        dataKey="전체 평균" 
+                                        fill={AVG_COLOR} 
+                                        name="전체 평균" 
+                                        radius={[4, 4, 0, 0]}
+                                        hide={isHidden}
+                                    />;
+                                }
+                                return <Bar 
+                                    key={seriesKey} 
+                                    dataKey={seriesKey} 
+                                    fill={farmColorMap.get(seriesKey)} 
+                                    name={seriesKey} 
                                     radius={[4, 4, 0, 0]} 
-                                    fillOpacity={activeLegend === null || activeLegend === farm ? 1 : 0.3}
-                                />
-                            ))}
+                                    hide={isHidden}
+                                />;
+                            })}
                         </BarChart>
                     );
                 }
