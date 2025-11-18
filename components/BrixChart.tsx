@@ -18,7 +18,7 @@ const AVG_COLOR = '#F97316'; // Distinct color for overall average
 const LINE_STYLES = ['solid', '5 5', '10 5', '3 3', '1 5']; // Dash patterns for line chart
 
 const BrixChart: React.FC<BrixChartProps> = ({ data, timeSeriesData, selectedFarmlands, filters, onFilterChange, yearList }) => {
-  // State to track the currently active legend item for filtering
+  // State to track the currently active legend item for highlighting
   const [activeLegend, setActiveLegend] = useState<string | null>(null);
 
   // Memoize the color mapping for farms to avoid recalculation on every render
@@ -34,27 +34,25 @@ const BrixChart: React.FC<BrixChartProps> = ({ data, timeSeriesData, selectedFar
     onFilterChange({ ...filters, year: e.target.value });
   };
   
-  // Handles legend click: Toggles filtering for the clicked data series.
+  // Handles legend click: Toggles highlighting for the clicked data series.
   const handleLegendClick = (e: any) => {
     const { dataKey } = e;
-    // If the clicked legend is already active, deactivate it (show all).
-    // Otherwise, activate the clicked legend.
     setActiveLegend(prevActive => (prevActive === dataKey ? null : dataKey));
   };
   
-  // Handles chart background click: Resets any active legend filters.
+  // Handles chart background click: Resets any active legend highlighting.
   const handleChartClick = () => {
     setActiveLegend(null);
   };
 
   // Determine the current chart mode based on filters
-  const isSingleDayData = filters.dateFilterEnabled && timeSeriesData.length === 1;
-  const isTimeSeries = filters.dateFilterEnabled && !isSingleDayData;
+  const isSingleDayView = filters.dateFilterEnabled && filters.startDate === filters.endDate;
+  const isTimeSeries = filters.dateFilterEnabled && !isSingleDayView;
   const isVarietyComparison = !filters.dateFilterEnabled;
 
   const isDataEmpty = 
     (isTimeSeries && timeSeriesData.length === 0) ||
-    (isSingleDayData && timeSeriesData.length === 0) ||
+    (isSingleDayView && timeSeriesData.every(p => Object.keys(p).length <= 1)) ||
     (isVarietyComparison && data.length === 0);
 
   if (isDataEmpty) {
@@ -67,8 +65,8 @@ const BrixChart: React.FC<BrixChartProps> = ({ data, timeSeriesData, selectedFar
 
   // Dynamically generate the chart title based on the current view
   const getChartTitle = () => {
-    if (isSingleDayData) {
-      return `${timeSeriesData[0].date} 당도 비교`;
+    if (isSingleDayView) {
+      return `${filters.startDate} 당도 비교`;
     }
     if (isTimeSeries) {
       return '기간별 당도 추이';
@@ -92,7 +90,7 @@ const BrixChart: React.FC<BrixChartProps> = ({ data, timeSeriesData, selectedFar
   // preventing state issues within Recharts.
   let chartKey = 'variety-bar';
   if (isTimeSeries) chartKey = 'timeseries-line';
-  if (isSingleDayData) chartKey = 'singleday-bar';
+  if (isSingleDayView) chartKey = 'singleday-bar';
 
 
   return (
@@ -127,50 +125,65 @@ const BrixChart: React.FC<BrixChartProps> = ({ data, timeSeriesData, selectedFar
                         <LineChart data={timeSeriesData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }} onClick={handleChartClick}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
                             <XAxis dataKey="date" tick={{ fill: '#64748B' }} />
-                            <YAxis label={{ value: 'Brix', angle: -90, position: 'insideLeft', fill: '#64748B' }} tick={{ fill: '#64748B' }} />
+                            <YAxis label={{ value: 'Brix', angle: -90, position: 'insideLeft', fill: '#64748B' }} tick={{ fill: '#64748B' }} domain={['dataMin - 1', 'dataMax + 1']} />
                             {chartTooltip}
                             <Legend onClick={handleLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
-                            {/* Conditionally render '전체 평균' line based on filter */}
-                            {(activeLegend === null || activeLegend === '전체 평균') &&
-                                <Line key="전체 평균" type="monotone" dataKey="전체 평균" stroke={AVG_COLOR} strokeWidth={2} name="전체 평균" dot={false} />
-                            }
-                            {/* Conditionally render each farm's line based on filter */}
+                            <Line 
+                                key="전체 평균" 
+                                type="monotone" 
+                                dataKey="전체 평균" 
+                                stroke={AVG_COLOR}
+                                strokeWidth={activeLegend === '전체 평균' ? 4 : 2}
+                                strokeOpacity={activeLegend === null || activeLegend === '전체 평균' ? 1 : 0.3}
+                                name="전체 평균" 
+                                dot={false}
+                                connectNulls={true}
+                            />
                             {selectedFarmlands.map((farm, index) => (
-                                (activeLegend === null || activeLegend === farm) &&
                                 <Line
                                     key={farm}
                                     type="monotone"
                                     dataKey={farm}
                                     stroke={farmColorMap.get(farm)}
-                                    strokeWidth={2}
+                                    strokeWidth={activeLegend === farm ? 4 : 2}
+                                    strokeOpacity={activeLegend === null || activeLegend === farm ? 1 : 0.3}
                                     name={farm}
                                     strokeDasharray={LINE_STYLES[index % LINE_STYLES.length]}
                                     dot={false}
+                                    connectNulls={true}
                                 />
                             ))}
                         </LineChart>
                     );
                 }
                 // Renders a bar chart for single-day data or variety comparison
-                if (isSingleDayData || isVarietyComparison) {
-                    const chartDataSource = isSingleDayData ? timeSeriesData : data;
-                    // For single day, x-axis is date. For variety comparison, it's variety.
-                    const xAxisDataKey = isSingleDayData ? "date" : "variety";
+                if (isSingleDayView || isVarietyComparison) {
+                    const chartDataSource = isSingleDayView ? timeSeriesData : data;
+                    const xAxisDataKey = isSingleDayView ? "date" : "variety";
                     return (
                         <BarChart data={chartDataSource} margin={{ top: 5, right: 30, left: 20, bottom: 5 }} onClick={handleChartClick}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
                             <XAxis dataKey={xAxisDataKey} tick={{ fill: '#64748B' }} />
-                            <YAxis label={{ value: 'Brix', angle: -90, position: 'insideLeft', fill: '#64748B' }} tick={{ fill: '#64748B' }} />
+                            <YAxis label={{ value: 'Brix', angle: -90, position: 'insideLeft', fill: '#64748B' }} tick={{ fill: '#64748B' }} domain={[0, 'dataMax + 2']}/>
                             {chartTooltip}
                             <Legend onClick={handleLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
-                            {/* Conditionally render '전체 평균' bar based on filter */}
-                            {(activeLegend === null || activeLegend === '전체 평균') &&
-                                <Bar key="전체 평균" dataKey="전체 평균" fill={AVG_COLOR} name="전체 평균" radius={[4, 4, 0, 0]} />
-                            }
-                            {/* Conditionally render each farm's bar based on filter */}
+                            <Bar 
+                                key="전체 평균" 
+                                dataKey="전체 평균" 
+                                fill={AVG_COLOR} 
+                                name="전체 평균" 
+                                radius={[4, 4, 0, 0]}
+                                fillOpacity={activeLegend === null || activeLegend === '전체 평균' ? 1 : 0.3}
+                            />
                             {selectedFarmlands.map(farm => (
-                                (activeLegend === null || activeLegend === farm) &&
-                                <Bar key={farm} dataKey={farm} fill={farmColorMap.get(farm)} name={farm} radius={[4, 4, 0, 0]} />
+                                <Bar 
+                                    key={farm} 
+                                    dataKey={farm} 
+                                    fill={farmColorMap.get(farm)} 
+                                    name={farm} 
+                                    radius={[4, 4, 0, 0]} 
+                                    fillOpacity={activeLegend === null || activeLegend === farm ? 1 : 0.3}
+                                />
                             ))}
                         </BarChart>
                     );
