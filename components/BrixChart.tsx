@@ -16,7 +16,6 @@ interface BrixChartProps {
 
 const FARM_COLORS = ['#3B82F6', '#EC4899', '#4ADE80', '#F59E0B', '#8B5CF6']; // Colors for farms
 const AVG_COLOR = '#F97316'; // Distinct color for overall average
-const LINE_STYLES = ['solid', '5 5', '10 5', '3 3', '1 5']; // Dash patterns for line chart
 
 const BrixChart: React.FC<BrixChartProps> = ({ data, timeSeriesData, selectedFarmlands, filters, onFilterChange, yearList }) => {
   // State to track the currently active legend item for filtering
@@ -51,10 +50,9 @@ const BrixChart: React.FC<BrixChartProps> = ({ data, timeSeriesData, selectedFar
   const isTimeSeries = filters.dateFilterEnabled && !isSingleDayView;
   const isVarietyComparison = !filters.dateFilterEnabled;
 
-  const isDataEmpty = 
-    (isTimeSeries && timeSeriesData.length === 0) ||
-    (isSingleDayView && timeSeriesData.every(p => Object.keys(p).length <= 1)) ||
-    (isVarietyComparison && data.length === 0);
+  const currentData = isTimeSeries || isSingleDayView ? timeSeriesData : data;
+
+  const isDataEmpty = currentData.length === 0;
 
   if (isDataEmpty) {
     return (
@@ -87,10 +85,9 @@ const BrixChart: React.FC<BrixChartProps> = ({ data, timeSeriesData, selectedFar
     />
   );
   
-  // Using a dynamic key forces React to re-mount the chart component when the chart type changes or data length changes,
-  // preventing state issues within Recharts and ensuring updates visible.
-  const currentData = isTimeSeries || isSingleDayView ? timeSeriesData : data;
-  let chartKey = `chart-${isTimeSeries ? 'ts' : isSingleDayView ? 'day' : 'var'}-${currentData.length}`;
+  // Force re-render when data length or type changes significantly
+  // Use JSON stringify on length/type to create a unique key for the specific view state
+  const chartKey = `chart-${isTimeSeries ? 'ts' : 'cat'}-${currentData.length}-${selectedFarmlands.length}-${filters.year}`;
 
 
   return (
@@ -147,7 +144,7 @@ const BrixChart: React.FC<BrixChartProps> = ({ data, timeSeriesData, selectedFar
                                         hide={isHidden}
                                     />;
                                 }
-                                // Farms are rendered as Bars, only appearing when data exists (handled in App.tsx logic)
+                                // Farms are rendered as Bars
                                 return <Bar
                                     key={seriesKey}
                                     dataKey={seriesKey}

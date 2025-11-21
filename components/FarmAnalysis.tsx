@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import type { BrixData } from '../types';
 
 interface FarmAnalysisProps {
@@ -89,15 +89,13 @@ const FarmAnalysis: React.FC<FarmAnalysisProps> = ({ data, farmerList }) => {
     return farmData.filter(d => d.MEASURE_DATE >= start && d.MEASURE_DATE <= end);
   }, [farmData, startDate, endDate]);
 
-  // 4. Calculate Chart Data (Cumulative Average logic similar to App.tsx)
+  // 4. Calculate Chart Data
+  // Shows bars only for dates with data, but the value is Cumulative Average Year-To-Date
   const chartData = useMemo(() => {
-    const dailyAggregates = new Map<string, { sum: number, count: number, date: Date }>();
-    
-    // Sort all farm data by date
+    const dailyMap = new Map<string, { total: number, count: number, date: Date }>();
     const sortedFarmData = [...farmData].sort((a,b) => a.MEASURE_DATE.getTime() - b.MEASURE_DATE.getTime());
 
-    // Re-do: Aggregate daily totals first
-    const dailyMap = new Map<string, { total: number, count: number, date: Date }>();
+    // Aggregate daily totals
     for (const item of sortedFarmData) {
         const dateStr = formatDateToYYYYMMDD(item.MEASURE_DATE);
         if (!dailyMap.has(dateStr)) {
@@ -108,7 +106,6 @@ const FarmAnalysis: React.FC<FarmAnalysisProps> = ({ data, farmerList }) => {
         d.count += 1;
     }
 
-    // Now calculate cumulative over sorted days
     const sortedDates = Array.from(dailyMap.keys()).sort();
     let currentYear = '';
     let cumulativeSum = 0;
@@ -132,12 +129,13 @@ const FarmAnalysis: React.FC<FarmAnalysisProps> = ({ data, farmerList }) => {
         finalMap.set(dateStr, parseFloat((cumulativeSum / cumulativeCount).toFixed(2)));
     }
 
-    // Now filter for the view
     const start = parseDateAsLocal(startDate);
     const end = parseDateAsLocal(endDate);
     if (!start || !end) return [];
     end.setHours(23, 59, 59, 999);
 
+    // Filter to show only dates that exist within the selected range
+    // This ensures bars are only drawn where data exists
     return sortedDates
         .filter(dateStr => {
             const d = parseDateAsLocal(dateStr);
@@ -200,20 +198,19 @@ const FarmAnalysis: React.FC<FarmAnalysisProps> = ({ data, farmerList }) => {
   }, [selectedTag, filteredData]);
 
 
-  // Heatmap Color helper: Light Blue (Low) -> Dark Orange (High)
+  // Heatmap Color helper
   const getHeatmapColor = (brix: number) => {
-      if (brix < 9) return '#dbeafe'; // Blue 100 - Very Low
-      if (brix < 10) return '#93c5fd'; // Blue 300 - Low
-      if (brix < 11) return '#fdba74'; // Orange 300 - Mid
-      if (brix < 12) return '#f97316'; // Orange 500 - High
-      if (brix < 13) return '#ea580c'; // Orange 600 - Very High
-      return '#9a3412'; // Orange 800 - Extremely High
+      if (brix < 9) return '#dbeafe';
+      if (brix < 10) return '#93c5fd';
+      if (brix < 11) return '#fdba74';
+      if (brix < 12) return '#f97316';
+      if (brix < 13) return '#ea580c';
+      return '#9a3412';
   };
 
   const getTextColor = (bgColor: string) => {
-      // Use dark text for light backgrounds, white text for dark backgrounds
       if (['#dbeafe', '#93c5fd', '#fdba74'].includes(bgColor)) {
-          return '#1e293b'; // Slate 800
+          return '#1e293b';
       }
       return '#ffffff';
   };
