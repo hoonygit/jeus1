@@ -87,11 +87,10 @@ const BrixChart: React.FC<BrixChartProps> = ({ data, timeSeriesData, selectedFar
     />
   );
   
-  // Using a dynamic key forces React to re-mount the chart component when the chart type changes,
-  // preventing state issues within Recharts.
-  let chartKey = 'variety-bar';
-  if (isTimeSeries) chartKey = 'timeseries-composed';
-  if (isSingleDayView) chartKey = 'singleday-bar';
+  // Using a dynamic key forces React to re-mount the chart component when the chart type changes or data length changes,
+  // preventing state issues within Recharts and ensuring updates visible.
+  const currentData = isTimeSeries || isSingleDayView ? timeSeriesData : data;
+  let chartKey = `chart-${isTimeSeries ? 'ts' : isSingleDayView ? 'day' : 'var'}-${currentData.length}`;
 
 
   return (
@@ -123,7 +122,7 @@ const BrixChart: React.FC<BrixChartProps> = ({ data, timeSeriesData, selectedFar
                 const allSeries = ['전체 평균', ...selectedFarmlands];
 
                 // Renders a Mixed chart (ComposedChart) for time-series data
-                // Farms are Bars, Overall Average is a Line.
+                // Farms are Bars (Actual Data), Overall Average is a Line (Trend).
                 if (isTimeSeries) {
                     return (
                         <ComposedChart data={timeSeriesData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }} onClick={handleChartClick}>
@@ -148,14 +147,14 @@ const BrixChart: React.FC<BrixChartProps> = ({ data, timeSeriesData, selectedFar
                                         hide={isHidden}
                                     />;
                                 }
-                                // Farms are rendered as Bars
+                                // Farms are rendered as Bars, only appearing when data exists (handled in App.tsx logic)
                                 return <Bar
                                     key={seriesKey}
                                     dataKey={seriesKey}
                                     fill={farmColorMap.get(seriesKey)}
                                     name={seriesKey}
                                     hide={isHidden}
-                                    barSize={20} // Adjust bar width if necessary
+                                    barSize={20} 
                                     radius={[4, 4, 0, 0]}
                                 />;
                             })}
