@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import type { BrixData, FilterState, ChartDataPoint } from './types';
 import Card from './components/Card';
@@ -119,41 +120,43 @@ const App: React.FC = () => {
     const processData = () => {
         const { farmlands, variety, startDate, endDate, dateFilterEnabled, year } = filters;
         
-        let baseFilteredData = allData;
-        if (dateFilterEnabled) {
-            const start = parseDateAsLocal(startDate);
-            let end = parseDateAsLocal(endDate);
-            if(end) {
-                // Make the end date inclusive by setting it to the end of the day.
-                end.setHours(23, 59, 59, 999);
-            }
+        // 1. Filter by Variety first (and Year if date filter is OFF)
+        // Note: When dateFilterEnabled is true, we do NOT filter by date range yet.
+        // We need the full year's data to calculate the cumulative average correctly.
+        let filteredByVariety = allData;
 
-            baseFilteredData = baseFilteredData.filter(d => {
-                const date = d.MEASURE_DATE;
-                const isAfterStart = !start || date >= start;
-                const isBeforeEnd = !end || date <= end;
-                return isAfterStart && isBeforeEnd;
-            });
-        } else if (year !== 'ALL') {
-            baseFilteredData = baseFilteredData.filter(d => d.MEASURE_DATE.getFullYear().toString() === year);
+        if (!dateFilterEnabled && year !== 'ALL') {
+             filteredByVariety = filteredByVariety.filter(d => d.MEASURE_DATE.getFullYear().toString() === year);
         }
 
-        const filteredByVariety = variety === 'ALL'
-            ? baseFilteredData
-            : baseFilteredData.filter(d => d.VARIETY === variety);
+        if (variety !== 'ALL') {
+             filteredByVariety = filteredByVariety.filter(d => d.VARIETY === variety);
+        }
         
         if (dateFilterEnabled) {
-            // --- Time-series chart logic with interpolation support ---
-            const dataByDate = new Map<string, any>();
+            // --- Time-series chart logic ---
+            // OVERALL AVERAGE: Cumulative Average (Year-to-Date)
+            // FARM DATA: Cumulative Average (Year-to-Date), BUT only displayed on days with measurements.
+
+            // Step A: Aggregate daily stats (Total Brix, Count) for all available data
+            const dailyAggregates = new Map<string, any>();
+
             for (const item of filteredByVariety) {
                 const dateStr = formatDateToYYYYMMDD(item.MEASURE_DATE);
-                if (!dataByDate.has(dateStr)) {
-                    dataByDate.set(dateStr, { overall_total: 0, overall_count: 0 });
+                if (!dailyAggregates.has(dateStr)) {
+                    dailyAggregates.set(dateStr, { 
+                        dateObj: item.MEASURE_DATE,
+                        daily_total: 0, 
+                        daily_count: 0 
+                    });
                 }
-                const dateAgg = dataByDate.get(dateStr)!;
-                dateAgg.overall_total += item.BRIX;
-                dateAgg.overall_count += 1;
+                const dateAgg = dailyAggregates.get(dateStr)!;
+                
+                // Accumulate daily total (for later cumulative calculation for Overall)
+                dateAgg.daily_total += item.BRIX;
+                dateAgg.daily_count += 1;
         
+                // Individual Farm Data (Daily specific aggregation)
                 if (farmlands.includes(item.FARMLAND)) {
                     const farmTotalKey = `${item.FARMLAND}_total`;
                     const farmCountKey = `${item.FARMLAND}_count`;
@@ -162,25 +165,145 @@ const App: React.FC = () => {
                 }
             }
             
+            // Step B: Calculate Averages
+            const sortedDates = Array.from(dailyAggregates.keys()).sort();
+            const computedAveragesMap = new Map<string, { overall?: number, farms: Record<string, number> }>();
+
+            let currentYear = '';
+            
+            // Overall cumulative trackers
+            let cumulativeSum = 0;
+            let cumulativeCount = 0;
+
+            // Farm cumulative trackers: Map<FarmName, { sum, count }>
+            const farmCumulativeStats = new Map<string, { sum: number, count: number }>();
+            
+            // We iterate through ALL sorted dates to build the running averages correctly
+            for (const dateStr of sortedDates) {
+                const agg = dailyAggregates.get(dateStr);
+                const rowYear = agg.dateObj.getFullYear().toString();
+
+                if (rowYear !== currentYear) {
+                    // Year changed, reset all cumulative stats
+                    currentYear = rowYear;
+                    cumulativeSum = 0;
+                    cumulativeCount = 0;
+                    farmCumulativeStats.clear();
+                }
+
+                // 1. Calculate Overall Cumulative Average
+                if (agg.daily_count > 0) {
+                    cumulativeSum += agg.daily_total;
+                    cumulativeCount += agg.daily_count;
+                }
+
+                const computedEntry: { overall?: number, farms: Record<string, number> } = { farms: {} };
+
+                if (cumulativeCount > 0) {
+                    computedEntry.overall = parseFloat((cumulativeSum / cumulativeCount).toFixed(2));
+                }
+
+                // 2. Calculate Farm Cumulative Average (Only if data exists for that day)
+                for (const farm of farmlands) {
+                    const farmTotal = agg[`${farm}_total`];
+                    const farmCount = agg[`${farm}_count`];
+                    
+                    // Initialize tracker if not exists
+                    if (!farmCumulativeStats.has(farm)) {
+                        farmCumulativeStats.set(farm, { sum: 0, count: 0 });
+                    }
+                    const farmStats = farmCumulativeStats.get(farm)!;
+
+                    // If there is measurement data for this farm on this day
+                    if (farmTotal !== undefined && farmCount > 0) {
+                        // Update cumulative stats
+                        farmStats.sum += farmTotal;
+                        farmStats.count += farmCount;
+                        
+                        // Calculate and store CUMULATIVE average for display
+                        computedEntry.farms[farm] = parseFloat((farmStats.sum / farmStats.count).toFixed(2));
+                    }
+                    // If no data for this day, we do NOTHING. 
+                    // We preserve the cumulative stats (farmStats) for the next calculation, 
+                    // but we do NOT add an entry to computedEntry.farms, so no bar is drawn.
+                }
+                
+                if (computedEntry.overall !== undefined || Object.keys(computedEntry.farms).length > 0) {
+                    computedAveragesMap.set(dateStr, computedEntry);
+                }
+            }
+
+            // Step C: Generate final chart data for the selected range
             const finalTimeSeriesData: ChartDataPoint[] = [];
             const start = parseDateAsLocal(startDate);
             const end = parseDateAsLocal(endDate);
+
+            // Threshold for breaking the graph line (Only applies to Overall Average)
+            const MAX_GAP_DAYS = 0;
+
             if (start && end && end >= start) {
+                // State to track the "last known average" for Overall Gap filling
+                let lastKnownOverall: number | null = null;
+                let lastDateOverall: Date | null = null;
+                let lastKnownYear: string = '';
+
+                // Optimization: Pre-scan backwards to find initial carry-over value for Overall Average
+                if (start) {
+                     const startYear = start.getFullYear().toString();
+                     const startTs = start.getTime();
+                     
+                     for (let i = sortedDates.length - 1; i >= 0; i--) {
+                         const dStr = sortedDates[i];
+                         const dObj = parseDateAsLocal(dStr);
+                         if (dObj && dObj.getTime() < startTs && dObj.getFullYear().toString() === startYear) {
+                             const computed = computedAveragesMap.get(dStr);
+                             if (computed && computed.overall !== undefined) {
+                                 lastKnownOverall = computed.overall;
+                                 lastDateOverall = dObj;
+                                 lastKnownYear = startYear;
+                                 break; 
+                             }
+                         }
+                     }
+                }
+
+                // Loop through every day in the selected filter range
                 for (let currentDate = new Date(start); currentDate <= end; currentDate.setDate(currentDate.getDate() + 1)) {
                     const dateStr = formatDateToYYYYMMDD(currentDate);
-                    const aggs = dataByDate.get(dateStr);
+                    const currentYearStr = currentDate.getFullYear().toString();
+                    const currentTime = currentDate.getTime();
+
+                    // Reset Overall carry-over if we crossed into a new year
+                    if (currentYearStr !== lastKnownYear) {
+                        lastKnownOverall = null;
+                        lastDateOverall = null;
+                        lastKnownYear = currentYearStr;
+                    }
+
+                    const computed = computedAveragesMap.get(dateStr);
                     const point: ChartDataPoint = { date: dateStr };
-                    if (aggs) {
-                        if (aggs.overall_count > 0) {
-                            point['전체 평균'] = parseFloat((aggs.overall_total / aggs.overall_count).toFixed(2));
-                        }
-                        for (const farm of farmlands) {
-                            const total = aggs[`${farm}_total`], count = aggs[`${farm}_count`];
-                            if (total !== undefined && count > 0) {
-                                point[farm] = parseFloat((total / count).toFixed(2));
-                            }
+                    
+                    // 1. Set Overall Average (Cumulative with Gap Check)
+                    if (computed && computed.overall !== undefined) {
+                        point['전체 평균'] = computed.overall;
+                        lastKnownOverall = computed.overall;
+                        lastDateOverall = new Date(currentDate);
+                    } else if (lastKnownOverall !== null && lastDateOverall) {
+                        const diffTime = Math.abs(currentTime - lastDateOverall.getTime());
+                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                        
+                        if (diffDays <= MAX_GAP_DAYS) {
+                            point['전체 평균'] = lastKnownOverall;
                         }
                     }
+
+                    // 2. Set Farm Data (Cumulative, only if exists today)
+                    for (const farm of farmlands) {
+                        if (computed && computed.farms && computed.farms[farm] !== undefined) {
+                            point[farm] = computed.farms[farm];
+                        }
+                    }
+
                     finalTimeSeriesData.push(point);
                 }
             }
@@ -189,9 +312,20 @@ const App: React.FC = () => {
             setChartData([]);
 
         } else {
-            // --- Variety comparison bar chart logic ---
+            // --- Variety comparison bar chart logic (unchanged) ---
+            let finalFilteredData = filteredByVariety;
+            if (dateFilterEnabled) {
+                 const start = parseDateAsLocal(startDate);
+                 let end = parseDateAsLocal(endDate);
+                 if(end) end.setHours(23, 59, 59, 999);
+                 finalFilteredData = finalFilteredData.filter(d => {
+                    const date = d.MEASURE_DATE;
+                    return (!start || date >= start) && (!end || date <= end);
+                 });
+            }
+
             const dataByVariety = new Map<string, any>();
-            for (const item of filteredByVariety) {
+            for (const item of finalFilteredData) {
                 const itemVariety = item.VARIETY;
                 if (!dataByVariety.has(itemVariety)) {
                     dataByVariety.set(itemVariety, { overall_total: 0, overall_count: 0 });

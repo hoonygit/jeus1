@@ -1,6 +1,7 @@
+
 import React, { useMemo, useState } from 'react';
 import { 
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, LineChart, Line 
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, LineChart, Line, ComposedChart 
 } from 'recharts';
 import type { ChartDataPoint, FilterState } from '../types';
 
@@ -89,7 +90,7 @@ const BrixChart: React.FC<BrixChartProps> = ({ data, timeSeriesData, selectedFar
   // Using a dynamic key forces React to re-mount the chart component when the chart type changes,
   // preventing state issues within Recharts.
   let chartKey = 'variety-bar';
-  if (isTimeSeries) chartKey = 'timeseries-line';
+  if (isTimeSeries) chartKey = 'timeseries-composed';
   if (isSingleDayView) chartKey = 'singleday-bar';
 
 
@@ -121,10 +122,11 @@ const BrixChart: React.FC<BrixChartProps> = ({ data, timeSeriesData, selectedFar
             {(() => {
                 const allSeries = ['전체 평균', ...selectedFarmlands];
 
-                // Renders a line chart for time-series data (more than one day)
+                // Renders a Mixed chart (ComposedChart) for time-series data
+                // Farms are Bars, Overall Average is a Line.
                 if (isTimeSeries) {
                     return (
-                        <LineChart data={timeSeriesData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }} onClick={handleChartClick}>
+                        <ComposedChart data={timeSeriesData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }} onClick={handleChartClick}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
                             <XAxis dataKey="date" tick={{ fill: '#64748B' }} />
                             <YAxis label={{ value: 'Brix', angle: -90, position: 'insideLeft', fill: '#64748B' }} tick={{ fill: '#64748B' }} domain={['dataMin - 1', 'dataMax + 1']} />
@@ -132,34 +134,32 @@ const BrixChart: React.FC<BrixChartProps> = ({ data, timeSeriesData, selectedFar
                             <Legend onClick={handleLegendClick} wrapperStyle={{ cursor: 'pointer' }} />
                             {allSeries.map(seriesKey => {
                                 const isHidden = activeLegend !== null && activeLegend !== seriesKey;
+                                
                                 if (seriesKey === '전체 평균') {
                                     return <Line 
                                         key="전체 평균" 
                                         type="monotone" 
                                         dataKey="전체 평균" 
                                         stroke={AVG_COLOR}
-                                        strokeWidth={2}
+                                        strokeWidth={3}
                                         name="전체 평균" 
                                         dot={false}
-                                        connectNulls={true}
+                                        connectNulls={false} 
                                         hide={isHidden}
                                     />;
                                 }
-                                const farmIndex = selectedFarmlands.indexOf(seriesKey);
-                                return <Line
+                                // Farms are rendered as Bars
+                                return <Bar
                                     key={seriesKey}
-                                    type="monotone"
                                     dataKey={seriesKey}
-                                    stroke={farmColorMap.get(seriesKey)}
-                                    strokeWidth={2}
+                                    fill={farmColorMap.get(seriesKey)}
                                     name={seriesKey}
-                                    strokeDasharray={LINE_STYLES[farmIndex % LINE_STYLES.length]}
-                                    dot={false}
-                                    connectNulls={true}
                                     hide={isHidden}
+                                    barSize={20} // Adjust bar width if necessary
+                                    radius={[4, 4, 0, 0]}
                                 />;
                             })}
-                        </LineChart>
+                        </ComposedChart>
                     );
                 }
                 // Renders a bar chart for single-day data or variety comparison
